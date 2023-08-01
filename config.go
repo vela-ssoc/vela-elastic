@@ -1,16 +1,21 @@
 package elastic
 
 import (
+	"context"
 	"fmt"
 	"github.com/olivere/elastic/v7"
 	"github.com/vela-ssoc/vela-kit/auxlib"
 	"github.com/vela-ssoc/vela-kit/lua"
+	"github.com/vela-ssoc/vela-kit/proxy"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
 )
 
 type config struct {
+	Default             bool
+	Proxy               bool
 	Index               string
 	Username            string
 	Password            string
@@ -39,9 +44,7 @@ func (cfg *config) name() string {
 	return fmt.Sprintf("vela.elastic.%s", cfg.Index)
 }
 
-func (cfg *config) OptionsFunc() ([]elastic.ClientOptionFunc, error) {
-	var options []elastic.ClientOptionFunc
-
+func (cfg *config) ProxyTransport() (*http.Transport, error) {
 	tlsCfg, err := cfg.TLSConfig()
 	if err != nil {
 		return nil, err
@@ -49,6 +52,45 @@ func (cfg *config) OptionsFunc() ([]elastic.ClientOptionFunc, error) {
 
 	tr := &http.Transport{
 		TLSClientConfig: tlsCfg,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			p := proxy.New(fmt.Sprintf("%s://%s", network, addr))
+			return p.Dail(ctx)
+		},
+
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			p := proxy.New(fmt.Sprintf("tls://%s", addr))
+			return p.Dail(ctx)
+		},
+	}
+
+	return tr, nil
+
+}
+
+func (cfg *config) Transport() (*http.Transport, error) {
+	tlsCfg, err := cfg.TLSConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Transport{
+		TLSClientConfig: tlsCfg,
+	}, nil
+}
+
+func (cfg *config) OptionsFunc() ([]elastic.ClientOptionFunc, error) {
+	var options []elastic.ClientOptionFunc
+
+	var tr *http.Transport
+	var err error
+	if cfg.Proxy {
+		tr, err = cfg.ProxyTransport()
+	} else {
+		tr, err = cfg.Transport()
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	httpclient := &http.Client{
@@ -146,6 +188,9 @@ func (cfg *config) NewIndex(L *lua.LState, key string, val lua.LValue) {
 
 	case "flush":
 		cfg.Flush = lua.CheckInt(L, val)
+
+	case "proxy":
+		cfg.Proxy = lua.CheckBool(L, val)
 	}
 }
 
@@ -153,8 +198,8 @@ func newConfig(L *lua.LState) *config {
 	tab := L.CheckTable(1)
 	cfg := &config{
 		Thread:   3,
-		Interval: 5,
-		Flush:    50,
+		Interval: 1,
+		Flush:    10,
 	}
 
 	tab.Range(func(key string, val lua.LValue) {

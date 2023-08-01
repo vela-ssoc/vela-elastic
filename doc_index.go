@@ -5,7 +5,7 @@ import (
 	"github.com/vela-ssoc/vela-kit/lua"
 )
 
-func PrepareIndex(format string, fields []string) func(*doc) error {
+func PrepareIndex(format string, fields []string) func(*doc) error { // evt-log-%s
 	if len(fields) == 0 {
 		return func(d *doc) error {
 			d.index = format

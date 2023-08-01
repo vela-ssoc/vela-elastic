@@ -1,6 +1,7 @@
 package elastic
 
 import (
+	"bytes"
 	"context"
 	"github.com/olivere/elastic/v7"
 	cond "github.com/vela-ssoc/vela-cond"
@@ -15,10 +16,13 @@ var typeof = reflect.TypeOf((*Client)(nil)).String()
 
 type Client struct {
 	lua.SuperVelaData
-	cfg    *config
-	err    error
-	index  func(*doc) error
-	pip    *pipe.Px
+	cfg   *config
+	err   error
+	index func(*doc) error
+
+	lastE  time.Time
+	esapi  *elastic.Client
+	pip    *pipe.Chains
 	vsh    *vswitch.Switch
 	drop   []*cond.Cond
 	queue  chan *elastic.BulkIndexRequest
@@ -40,9 +44,22 @@ func (c *Client) doBulk(v []elastic.BulkableRequest, cli *elastic.Client) error 
 		return nil
 	}
 
+	if !c.cfg.Default {
+		bulk := cli.Bulk()
+		bulk.Add(v...)
+		_, err := bulk.Do(c.ctx)
+		return err
+	}
+
+	cli, err := EsApiClient()
+	if err != nil {
+		return err
+	}
+	defer cli.Stop()
+
 	bulk := cli.Bulk()
 	bulk.Add(v...)
-	_, err := bulk.Do(c.ctx)
+	_, err = bulk.Do(c.ctx)
 	return err
 }
 
@@ -109,6 +126,35 @@ func (c *Client) DoSwitch(d *doc) {
 	c.vsh.Do(d)
 }
 
+func (c *Client) DefaultClient() *elastic.Client {
+	if c.esapi != nil {
+		return c.esapi
+	}
+
+	cli, err := EsApiClient()
+	if err != nil {
+		xEnv.Errorf("elastic default client create fail %v", err)
+		return nil
+	}
+
+	c.esapi = cli
+	return cli
+}
+
+func (c *Client) ByDefault(d *doc) {
+	bulk := d.bulk()
+	if len(bulk) == 0 {
+		return
+	}
+	reader := bytes.NewReader(bulk)
+
+	cli, _ := EsApiClient()
+	cli.Bulk().Add()
+	if e := xEnv.Oneway("/api/v1/broker/forward/elastic", reader, nil); e != nil { //Oneway
+		xEnv.Errorf("push broker forward elastic fail %v", e)
+	}
+}
+
 func (c *Client) Write(v []byte) (n int, err error) {
 	d, err := newDoc(v)
 	if err != nil {
@@ -133,6 +179,12 @@ func (c *Client) Write(v []byte) (n int, err error) {
 		return 0, nil
 	case ACCEPT:
 		c.queue <- elastic.NewBulkIndexRequest().Index(d.index).Doc(d.data)
+		//if !c.cfg.Default {
+		//	c.queue <- elastic.NewBulkIndexRequest().Index(d.index).Doc(d.data)
+		//	return 0, nil
+		//}
+		////c.ByDefault(d)
+		//c.Default(elastic.NewBulkIndexRequest().Index(d.index).Doc(d.data))
 	}
 
 	return

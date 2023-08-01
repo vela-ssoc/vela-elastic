@@ -1,8 +1,10 @@
 package elastic
 
 import (
-	"github.com/vela-ssoc/vela-kit/vela"
+	"fmt"
 	"github.com/vela-ssoc/vela-kit/lua"
+	"github.com/vela-ssoc/vela-kit/vela"
+	"sync/atomic"
 )
 
 var xEnv vela.Environment
@@ -79,11 +81,43 @@ func newLuaDropL(L *lua.LState) int {
 	return 1
 }
 
+/*
+local cli = vela.elastic.default()
+cli.index("index-$day")
+cli.push(abc)
+
+*/
+
+var subscript uint32 = 0
+
+func newDefaultL(L *lua.LState) int {
+	cfg := &config{
+		Default:  true,
+		Thread:   3,
+		Interval: 1,
+		Flush:    10,
+	}
+
+	name := fmt.Sprintf("elastic.%d", atomic.AddUint32(&subscript, 1))
+	v := L.NewVelaData(name, typeof)
+	cli := newClient(cfg)
+	cli.indexL(L)
+
+	v.Set(cli)
+	xEnv.Start(L, cli).From(L.CodeVM()).Err(func(err error) {
+		L.RaiseError("start default elastic fail %v", err)
+	}).Do()
+	L.Push(v)
+	return 1
+}
+
 func WithEnv(env vela.Environment) {
 	xEnv = env
 	es := lua.NewUserKV()
 	es.Set("client", lua.NewFunction(newLuaClient))
 	es.Set("index", lua.NewFunction(newLuaIndexL))
 	es.Set("drop", lua.NewFunction(newLuaDropL))
-	xEnv.Set("elastic", es)
+	es.Set("default", lua.NewFunction(newDefaultL))
+	es.Set("search", lua.NewFunction(newSearchL))
+	xEnv.Set("elastic", lua.NewExport("lua.elastic.export", lua.WithFunc(newLuaClient), lua.WithTable(es)))
 }

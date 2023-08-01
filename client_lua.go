@@ -1,7 +1,9 @@
 package elastic
 
 import (
+	"github.com/olivere/elastic/v7"
 	cond "github.com/vela-ssoc/vela-cond"
+	"github.com/vela-ssoc/vela-kit/auxlib"
 	"github.com/vela-ssoc/vela-kit/lua"
 	vswitch "github.com/vela-ssoc/vela-switch"
 )
@@ -63,10 +65,68 @@ func (c *Client) startL(L *lua.LState) int {
 	return 0
 }
 
+/*
+	es.index("aabcc-%s" , "$day")
+	res := es.search(index , "name:123" , "ab:aa" , "ac:123")
+
+
+	app.count()
+
+	app := es.
+
+*/
+
+func (c *Client) searchL(L *lua.LState) int {
+	if !c.cfg.Default {
+		L.RaiseError("not allow msearch only vela.elastic.default can msearch")
+		return 0
+	}
+
+	n := L.GetTop()
+	if n < 2 {
+		L.RaiseError("invalid args , usage: es.search(index , query1 , query2)")
+		return 0
+	}
+
+	index := L.CheckString(1)
+	cli, err := EsApiClient()
+	if err != nil {
+		L.RaiseError("new elastic client fail %v", err)
+		return 0
+	}
+
+	s := cli.Search(index).Size(100)
+	for i := 2; i <= n; i++ {
+		item := L.Get(i)
+		if item.Type() != lua.LTString {
+			continue
+		}
+
+		name, value := auxlib.ParamValue(item.String())
+		if len(value) == 0 {
+			L.RaiseError("search fail query args must be key:value , got %s", item.String())
+			return 0
+		}
+		s.Query(elastic.NewTermQuery(name, value))
+	}
+
+	r, err := s.Do(L.Context())
+	L.Push(&ElasticsearchResult{cli: cli, Err: err, Result: r, index: index})
+	return 1
+}
+
+func (c *Client) withL(L *lua.LState) int {
+	return 0
+}
+
 func (c *Client) Index(L *lua.LState, key string) lua.LValue {
 	switch key {
 	case "start":
 		return lua.NewFunction(c.startL)
+	case "with":
+		return lua.NewFunction(c.withL)
+	case "search":
+		return lua.NewFunction(c.searchL)
 	case "send":
 		return lua.NewFunction(c.sendL)
 	case "index":

@@ -1,9 +1,11 @@
 package elastic
 
 import (
-	sonic "github.com/bytedance/sonic"
+	"encoding/json"
 	cond "github.com/vela-ssoc/vela-cond"
-	auxlib2 "github.com/vela-ssoc/vela-kit/auxlib"
+	"github.com/vela-ssoc/vela-kit/auxlib"
+	"github.com/vela-ssoc/vela-kit/kind"
+	"strconv"
 	"time"
 )
 
@@ -18,10 +20,32 @@ type doc struct {
 	data   map[string]interface{}
 }
 
+func (d *doc) bulk() []byte {
+	chunk, err := json.Marshal(d.data)
+	if err != nil {
+		xEnv.Errorf("elastic bulk marshal fail %v", err)
+		return nil
+	}
+
+	enc := kind.NewJsonEncoder()
+	enc.WriteByte('{')
+	enc.Tab("index")
+	enc.KV("_index", d.index)
+	enc.KV("_type", "_doc")
+	enc.End("}}")
+	enc.Char('\n')
+	enc.Copy(chunk)
+	enc.Char('\n')
+	return enc.Bytes()
+
+}
+
 func (d *doc) v(key string) interface{} {
 	switch key {
-	case "today":
+	case "day":
 		return time.Now().Format("2006-01-02")
+	case "today":
+		return strconv.Itoa(time.Now().Day())
 	case "month":
 		return time.Now().Format("2006-01")
 	case "year":
@@ -37,7 +61,7 @@ func (d *doc) Compare(key, val string, method cond.Method) bool {
 		return method("nil", val)
 	}
 
-	v, err := auxlib2.ToStringE(item)
+	v, err := auxlib.ToStringE(item)
 	if err != nil {
 		return false
 	}
@@ -46,13 +70,13 @@ func (d *doc) Compare(key, val string, method cond.Method) bool {
 
 func newDoc(data []byte) (*doc, error) {
 	d := doc{action: ACCEPT}
-	err := sonic.Unmarshal(data, &d.data)
+	err := json.Unmarshal(data, &d.data)
 	now := time.Now()
 	if err != nil {
 		d.data = map[string]interface{}{
 			"@timestamp": now,
 			"@error":     err.Error(),
-			"message":    auxlib2.B2S(data),
+			"message":    auxlib.B2S(data),
 		}
 	} else {
 		d.data["@timestamp"] = now

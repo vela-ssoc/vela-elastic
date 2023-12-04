@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/olivere/elastic/v7"
 	cond "github.com/vela-ssoc/vela-cond"
+	"github.com/vela-ssoc/vela-kit/denoise"
 	"github.com/vela-ssoc/vela-kit/lua"
 	"github.com/vela-ssoc/vela-kit/pipe"
 	vswitch "github.com/vela-ssoc/vela-switch"
@@ -16,18 +17,18 @@ var typeof = reflect.TypeOf((*Client)(nil)).String()
 
 type Client struct {
 	lua.SuperVelaData
-	cfg   *config
-	err   error
-	index func(*doc) error
-
-	lastE  time.Time
-	esapi  *elastic.Client
-	pip    *pipe.Chains
-	vsh    *vswitch.Switch
-	drop   []*cond.Cond
-	queue  chan *elastic.BulkIndexRequest
-	ctx    context.Context
-	cancel context.CancelFunc
+	cfg     *config
+	err     error
+	index   func(*doc) error
+	lastE   time.Time
+	denoise *denoise.Bucket
+	esapi   *elastic.Client
+	pip     *pipe.Chains
+	vsh     *vswitch.Switch
+	drop    []*cond.Cond
+	queue   chan *elastic.BulkIndexRequest
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 func (c *Client) Name() string {
@@ -159,6 +160,10 @@ func (c *Client) Write(v []byte) (n int, err error) {
 	d, err := newDoc(v)
 	if err != nil {
 		return 0, err
+	}
+
+	if c.denoise != nil && c.denoise.Do(d) {
+		return 0, nil
 	}
 
 	err = c.index(d)

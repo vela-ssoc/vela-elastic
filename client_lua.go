@@ -4,6 +4,7 @@ import (
 	"github.com/olivere/elastic/v7"
 	cond "github.com/vela-ssoc/vela-cond"
 	"github.com/vela-ssoc/vela-kit/auxlib"
+	"github.com/vela-ssoc/vela-kit/denoise"
 	"github.com/vela-ssoc/vela-kit/lua"
 	vswitch "github.com/vela-ssoc/vela-switch"
 )
@@ -67,8 +68,8 @@ func (c *Client) startL(L *lua.LState) int {
 
 /*
 	es.index("aabcc-%s" , "$day")
-	res := es.search(index , "name:123" , "ab:aa" , "ac:123")
-
+	res := es.search(index , "name:123" , "ab:aa" , "ac:12")
+3
 
 	app.count()
 
@@ -95,7 +96,7 @@ func (c *Client) searchL(L *lua.LState) int {
 		return 0
 	}
 
-	s := cli.Search(index).Size(100)
+	s := cli.Search(index).Size(c.cfg.PageSize)
 	for i := 2; i <= n; i++ {
 		item := L.Get(i)
 		if item.Type() != lua.LTString {
@@ -115,16 +116,30 @@ func (c *Client) searchL(L *lua.LState) int {
 	return 1
 }
 
-func (c *Client) withL(L *lua.LState) int {
-	return 0
+func (c *Client) DenoiseBucket(L *lua.LState) *denoise.Bucket {
+	if c.denoise == nil {
+		dkt := denoise.NewBucketL(L)
+		c.denoise = dkt
+		return dkt
+	}
+
+	return c.denoise
 }
+
+/*
+	local es = vela.elastic.default("vela-es-%s" , "$day")
+	es.denoise.section{
+		ttl   = 60 * 30,
+		count = 5,
+		index = {"p_name" , "p_cmdline" , "cmdline"},
+	}
+
+*/
 
 func (c *Client) Index(L *lua.LState, key string) lua.LValue {
 	switch key {
 	case "start":
 		return lua.NewFunction(c.startL)
-	case "with":
-		return lua.NewFunction(c.withL)
 	case "search":
 		return lua.NewFunction(c.searchL)
 	case "send":
@@ -135,6 +150,8 @@ func (c *Client) Index(L *lua.LState, key string) lua.LValue {
 		return lua.NewFunction(c.dropL)
 	case "switch":
 		return lua.NewFunction(c.switchL)
+	case "denoise":
+		return c.DenoiseBucket(L)
 	}
 
 	return lua.LNil

@@ -29,13 +29,9 @@ cli.switch(a)
 
 local c = vela.kfk.consumer{}
 
-
-
 cli.index("app-now)
 
 local app = cli.clone("index-app")
-
-
 
 */
 

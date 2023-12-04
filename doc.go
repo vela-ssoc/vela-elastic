@@ -5,6 +5,7 @@ import (
 	cond "github.com/vela-ssoc/vela-cond"
 	"github.com/vela-ssoc/vela-kit/auxlib"
 	"github.com/vela-ssoc/vela-kit/kind"
+	"github.com/vela-ssoc/vela-kit/strutil"
 	"strconv"
 	"time"
 )
@@ -53,6 +54,10 @@ func (d *doc) v(key string) interface{} {
 	}
 
 	return d.data[key]
+}
+
+func (d *doc) Field(key string) string {
+	return strutil.String(d.v(key))
 }
 
 func (d *doc) Compare(key, val string, method cond.Method) bool {

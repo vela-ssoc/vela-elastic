@@ -38,6 +38,7 @@ type config struct {
 	Thread              int
 	Interval            int
 	Flush               int
+	PageSize            int
 }
 
 func (cfg *config) name() string {
@@ -191,6 +192,14 @@ func (cfg *config) NewIndex(L *lua.LState, key string, val lua.LValue) {
 
 	case "proxy":
 		cfg.Proxy = lua.CheckBool(L, val)
+
+	case "page_size":
+		n := lua.IsInt(val)
+		if n < 100 {
+			cfg.PageSize = 100
+			return
+		}
+		cfg.PageSize = n
 	}
 }
 
@@ -200,6 +209,7 @@ func newConfig(L *lua.LState) *config {
 		Thread:   3,
 		Interval: 1,
 		Flush:    10,
+		PageSize: 500,
 	}
 
 	tab.Range(func(key string, val lua.LValue) {
